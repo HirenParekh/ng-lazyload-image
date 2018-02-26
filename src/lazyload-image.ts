@@ -1,17 +1,19 @@
 import {
-  filter,
-  tap,
-  take,
-  map,
-  mergeMap,
-  catchError,
+    filter,
+    tap,
+    take,
+    map,
+    mergeMap,
+    catchError,
 } from 'rxjs/operators';
-import { of } from 'rxjs/observable/of';
-import { Observable } from 'rxjs/Observable';
-import { getScrollListener } from './scroll-listener';
-import { Rect } from './rect';
-import { cssClassNames } from './constants';
-import { hasCssClassName, removeCssClassName, addCssClassName } from './utils';
+import {of} from 'rxjs/observable/of';
+import {Observable} from 'rxjs/Observable';
+import {getScrollListener} from './scroll-listener';
+import {Rect} from './rect';
+import {cssClassNames} from './constants';
+import {hasCssClassName, removeCssClassName, addCssClassName} from './utils';
+import {BehaviorSubject} from "rxjs/BehaviorSubject";
+import {EventEmitter} from "@angular/core";
 
 export function isVisible(element: HTMLElement, threshold = 0, _window: Window, scrollContainer?: HTMLElement) {
     const elementBounds = Rect.fromElement(element);
@@ -35,7 +37,7 @@ export function isImageElement(element: HTMLImageElement | HTMLDivElement): elem
     return element.nodeName.toLowerCase() === 'img';
 }
 
-function loadImage(element: HTMLImageElement | HTMLDivElement, imagePath: string, useSrcset: boolean): Observable<string> {
+function loadImage(element: HTMLImageElement | HTMLDivElement, imagePath: string, useSrcset: boolean, progressEvent: EventEmitter<any>): Observable<string> {
     let img: HTMLImageElement;
     if (isImageElement(element) && isChildOfPicture(element)) {
         const parentClone = element.parentNode.cloneNode(true) as HTMLPictureElement;
@@ -50,18 +52,40 @@ function loadImage(element: HTMLImageElement | HTMLDivElement, imagePath: string
         if (useSrcset) {
             img.srcset = imagePath;
         } else {
-            img.src = imagePath;
+            //img.src = imagePath;
         }
     }
 
     return Observable
         .create(observer => {
-            img.onload = () => {
-                observer.next(imagePath);
-                observer.complete();
+            let xhr = new XMLHttpRequest();
+            xhr.open("GET", imagePath, true);   // Make sure file is in same server
+            xhr.responseType = "arraybuffer";
+            xhr.onprogress = function (ev: ProgressEvent) {
+                progressEvent.emit(ev);
             };
-            img.onerror = err => {
-                observer.error(null);
+            xhr.send(null);
+
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState == 4) {
+                    if ((xhr.status == 200) || (xhr.status == 0)) {
+                        let arrayBufferView = new Uint8Array(xhr.response);
+                        let blob = new Blob([arrayBufferView], {type: "image/jpeg"});
+                        let file = new FileReader();
+                        file.onload = function (this, e) {
+                            console.log("result => ", this.result);
+                            img.src = this.result;
+                            observer.next(imagePath);
+                            observer.complete();
+                        };
+                        file.readAsDataURL(blob);
+                    } else {
+                        observer.error(null);
+                        alert("Something misconfiguration : " +
+                            "\nError Code : " + xhr.status +
+                            "\nError Message : " + xhr.responseText);
+                    }
+                }
             };
         });
 }
@@ -110,7 +134,7 @@ const setImageAndSourcesToDefault = setImageAndSources(setSourcesToDefault);
 const setImageAndSourcesToLazy = setImageAndSources(setSourcesToLazy);
 const setImageAndSourcesToError = setImageAndSources(setSourcesToError);
 
-export function lazyLoadImage(element: HTMLImageElement | HTMLDivElement, imagePath: string, defaultImagePath: string, errorImgPath: string, offset: number, useSrcset: boolean = false, scrollContainer?: HTMLElement) {
+export function lazyLoadImage(element: HTMLImageElement | HTMLDivElement, imagePath: string, defaultImagePath: string, errorImgPath: string, offset: number, useSrcset: boolean = false, scrollContainer?: HTMLElement, progressEvent?: EventEmitter<any>) {
     setImageAndSourcesToDefault(element, defaultImagePath, useSrcset);
 
     if (hasCssClassName(element, cssClassNames.loaded)) {
@@ -121,7 +145,7 @@ export function lazyLoadImage(element: HTMLImageElement | HTMLDivElement, imageP
         return scrollObservable.pipe(
             filter(() => isVisible(element, offset, window, scrollContainer)),
             take(1),
-            mergeMap(() => loadImage(element, imagePath, useSrcset)),
+            mergeMap(() => loadImage(element, imagePath, useSrcset, progressEvent)),
             tap(() => setImageAndSourcesToLazy(element, imagePath, useSrcset)),
             map(() => true),
             catchError(() => {

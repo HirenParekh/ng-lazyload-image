@@ -39,10 +39,12 @@ export class LazyLoadImageDirective implements OnChanges, AfterContentInit, OnDe
     @Input() offset: number;        // The number of px a image should be loaded before it is in view port
     @Input() useSrcset: boolean;    // Whether srcset attribute should be used instead of src
     @Output() onLoad: EventEmitter<boolean> = new EventEmitter(); // Callback when an image is loaded
+    @Output() onProgress: EventEmitter<any> = new EventEmitter<any>(); // Callback to handle image loading progress
     private propertyChanges$: ReplaySubject<LazyLoadImageDirectiveProps>;
     private elementRef: ElementRef;
     private ngZone: NgZone;
     private scrollSubscription;
+    private progressSubscription;
 
     constructor(el: ElementRef, ngZone: NgZone) {
         this.elementRef = el;
@@ -86,7 +88,8 @@ export class LazyLoadImageDirective implements OnChanges, AfterContentInit, OnDe
                         props.errorImage,
                         props.offset,
                         props.useSrcset,
-                        props.scrollTarget
+                        props.scrollTarget,
+                        this.onProgress
                     )
                 ))
             ).subscribe(success => this.onLoad.emit(success));
